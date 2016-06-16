@@ -5,4 +5,4 @@
 #include <string>
 #include <vector>
 using namespace std;
-typedef vector<string> Expr;
+typedef vector<string> Stat;

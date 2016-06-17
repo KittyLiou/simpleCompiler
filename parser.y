@@ -240,8 +240,8 @@ Expr:
 		printf("Expr => Expr_\n");
 		$$ = $1;
 	}
-	|Expr_ '+' Expr{
-		printf("Expr => Expr_ '+' Expr\n");
+	|Expr '+' Expr_{
+		printf("Expr => Expr '+' Expr_\n");
 		string expr1 = (*$1).at((*$1).size()-1);
 		(*$1).pop_back();
 		string expr2 = (*$3).at((*$3).size()-1);
@@ -267,8 +267,8 @@ Expr:
 		delete $1;
 		delete $3;
 	}
-	|Expr_ '-' Expr{
-		printf("Expr => Expr_ '-' Expr\n");
+	|Expr '-' Expr_{
+		printf("Expr => Expr '-' Expr_\n");
 		string expr1 = (*$1).at((*$1).size()-1);
 		(*$1).pop_back();
 		string expr2 = (*$3).at((*$3).size()-1);
@@ -294,8 +294,8 @@ Expr:
 		delete $1;
 		delete $3;
 	}
-	|Expr_ '*' Expr{
-        printf("Expr => Expr_ '*' Expr\n");	
+	|Expr '*' Expr_{
+        printf("Expr => Expr '*' Expr_\n");	
 		string expr1 = (*$1).at((*$1).size()-1);
 		(*$1).pop_back();
 		string expr2 = (*$3).at((*$3).size()-1);
@@ -321,8 +321,8 @@ Expr:
 		delete $1;
 		delete $3;
 	}
-	|Expr_ '/' Expr{
-        printf("Expr => Expr_ '/' Expr\n");	
+	|Expr '/' Expr_{
+        printf("Expr => Expr '/' Expr_\n");	
 		string expr1 = (*$1).at((*$1).size()-1);
 		(*$1).pop_back();
 		string expr2 = (*$3).at((*$3).size()-1);
@@ -350,29 +350,29 @@ Expr:
 		delete $1;
 		delete $3;
 	}
-	|Expr_ EQ Expr{
-        printf("Expr => Expr_ EQ Expr\n");	
+	|Expr EQ Expr_{
+        printf("Expr => Expr EQ Expr_\n");	
 	}
-	|Expr_ NEQ Expr{
-        printf("Expr => Expr_ NEQ Expr\n");	
+	|Expr NEQ Expr_{
+        printf("Expr => Expr NEQ Expr_\n");	
 	}
-	|Expr_ LT Expr{
-        printf("Expr => Expr_ LT Expr\n");	
+	|Expr LT Expr_{
+        printf("Expr => Expr LT Expr_\n");	
 	}
-	|Expr_ LE Expr{
-        printf("Expr => Expr_ LE Expr\n");	
+	|Expr LE Expr_{
+        printf("Expr => Expr LE Expr_\n");	
 	}
-	|Expr_ GT Expr{
-        printf("Expr => Expr_ GT Expr\n");	
+	|Expr GT Expr_{
+        printf("Expr => Expr GT Expr_\n");	
 	}
-	|Expr_ GE Expr{
-        printf("Expr => Expr_ GE Expr\n");	
+	|Expr GE Expr_{
+        printf("Expr => Expr GE Expr_\n");	
 	}
-	|Expr_ AND Expr{
-        printf("Expr => Expr_ AND Expr\n");	
+	|Expr AND Expr_{
+        printf("Expr => Expr AND Expr_\n");	
 	}
-	|Expr_ OR Expr{
-        printf("Expr => Expr_ OR Expr\n");	
+	|Expr OR Expr_{
+        printf("Expr => Expr OR Expr_\n");	
 	}
 	|id '[' Expr ']' ASSIGN Expr{
         printf("Expr => id '[' Expr ']' ASSIGN Expr\n");	

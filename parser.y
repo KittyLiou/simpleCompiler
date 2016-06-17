@@ -424,6 +424,7 @@ Expr_:
 	}
 	|'(' Expr ')'{
 		printf("Expr_ => '(' Expr ')'\n");
+		$$ = $2;
 	}
 	|id	{
 		printf("Expr_ => id\n");
@@ -442,6 +443,7 @@ Expr_:
 	}
 	|id '(' ExprList ')'{
 		printf("Expr_ => id '(' ExprList ')'\n");
+		
 	}
 	|id '[' Expr ']'{
 		printf("Expr_ => id '[' Expr ']'\n");

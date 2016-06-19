@@ -5,13 +5,16 @@
 	#include <map>
 	int yyerror(const char *s);
 	int yylex(void);
+	void no_reg_error(const char *s);
 	vector<string> stack;
 	map<string, int>symbol_table;
 	map<int, string> usedReg;
 	int getReg(vector<string> *v);
 	int getReg(vector<string> *v, string id);
- 	void releaseReg(int num);
+ 	void releaseReg(int num, vector<string> *v);
 	int framePtr = 11;
+	int label = 0;
+	int conti = 0;
 %}
 
 %union{
@@ -44,12 +47,10 @@ Program:
 		fprintf(fp, "	.globl main\n	.text\nmain:\n");
 		fprintf(fp, "\tadd $sp, $sp, -4\n\tsw $fp, 0($sp)\n");	//store the fp
 		fprintf(fp, "\tmove $fp, $sp\n");	//move fp to sp
-		printf("size:%d\n", (*$1).size());
 		for(unsigned int i = 0; i < (*$1).size(); ++i)
-		{
-			fprintf(fp,"%s",(*$1).at(i).c_str());
-		}
+		  fprintf(fp,"%s",(*$1).at(i).c_str());
 		fprintf(fp, "\tli $v0, 10\n\tsyscall\n");
+		fclose(fp);
 	}
 	;
 DeclList:
@@ -72,6 +73,7 @@ DeclList:
 		  (*$$).push_back((*$3).at(i));
 		delete $3;
 		delete $4;
+		//not yet finished
 	}
 	|{ }{
 		printf("DeclList => { }\n");
@@ -101,6 +103,7 @@ VarDeclList:
 		printf("VarDeclList => Type id '[' num ']' ';' VarDeclList\n");
 		$$ = new vector<string>();
 		delete $4;
+		//not yet finished
 	}
 	|{ }{
 		printf("VarDeclList: => { }\n");
@@ -157,6 +160,7 @@ StmtList:
 Stmt:
 	';'	{
 		printf("Stmt => ;\n");
+		$$ = new vector<string>();
 	}
 	|Expr ';'{
 		printf("Stmt => Expr;\n");
@@ -174,6 +178,27 @@ Stmt:
 	}
 	|IF '(' Expr ')' Stmt ELSE Stmt	{
 		printf("Stmt => IF ( Expr ) Stmt ELSE Stmt\n");
+		$$ = new vector<string>();
+		string expr = (*$3).at((*$3).size()-1);
+		(*$3).pop_back();
+		int result_reg = atoi(expr.c_str());
+		char tmp_instr[30];
+		sprintf(tmp_instr, "\tbne $t%d, $0, IfLabel%d:\n", result_reg, label);
+		(*$$).push_back(tmp_instr);
+		for(unsigned int i = 0; i < (*$7).size(); ++i)
+		  (*$$).push_back((*$7).at(i));
+		sprintf(tmp_instr, "\tj Conti%d:\n", conti);
+		(*$$).push_back(tmp_instr);
+		sprintf(tmp_instr, "IfLabel%d\n:", label++);
+		(*$$).push_back(tmp_instr);
+		for(unsigned int i = 0; i < (*$5).size(); ++i)
+		  (*$$).push_back((*$5).at(i));
+		sprintf(tmp_instr, "Conti%d:\n", conti++);
+		(*$$).push_back(tmp_instr);
+		releaseReg(result_reg, $$);
+		delete $3;
+		delete $5;
+		delete $7;
 	}
 	|WHILE '(' Expr ')' Stmt	{
 		printf("Stmt => WHILE ( Expr ) Stmt\n");
@@ -186,47 +211,53 @@ Stmt:
 		$$ =  new vector<string>();
 		string id = *$2;
 		char tmp_instr[30];
+		int reg;
 		(*$$).push_back("\tadd $sp, $sp, -4\n\tsw $a0, 0($sp)\n");	//store $a0
 		(*$$).push_back("\tli $v0, 1\n");
 		if(symbol_table.find(id) != symbol_table.end())
 		{
-			if(symbol_table[id] > 10)	//id is in stack
-			  sprintf(tmp_instr, "\tlw $a0, %d($fp)\n", (symbol_table[id]-10)*4);
-			else
-			  sprintf(tmp_instr, "\tmove $a0, $t%d\n", symbol_table[id]);			
+			reg = getReg($$, id);
+			if(reg < 0 || reg == 9)
+			  no_reg_error("Stmt => READ id");
 		}
 		else
 		{
-			int reg = getReg($$);
+			reg = getReg($$);
+			if(reg < 0 || reg == 9)
+			  no_reg_error("Stmt => READ id");
 			symbol_table[id] = reg;
 			usedReg[reg] = id;
-		  	sprintf(tmp_instr, "\tmove $a0, $t%d\n", reg);
 		}
+		sprintf(tmp_instr, "\tmove $a0, $t%d\n", reg);
 		(*$$).push_back(tmp_instr);
 		(*$$).push_back("\tsyscall\n");
 		(*$$).push_back("\tlw $a0, 0($sp)\n\tadd $sp, $sp, 4\n");	//restore $a0
+		releaseReg(reg, $$);
 	} 
 	|READ id ';'{
 		printf("Stmt => READ id\n");
 		$$ =  new vector<string>();
 		string id = *$2;
 		char tmp_instr[30];
+		int reg;
 		(*$$).push_back("\tli $v0, 5\n\tsyscall\n");
 		if(symbol_table.find(id) != symbol_table.end())
 		{
-			if(symbol_table[id] > 10)	//id is in stack
-			  sprintf(tmp_instr, "\tsw $v0, %d($fp)\n", (symbol_table[id]-10)*4);
-			else
-			  sprintf(tmp_instr, "\tmove $t%d, $v0\n", symbol_table[id]);			
+			reg = getReg($$, id);
+			if(reg < 0 || reg == 9)
+			  no_reg_error("Stmt => READ id");
 		}
 		else
 		{
-			int reg = getReg($$);
+			reg = getReg($$);
+			if(reg == 9)
+			  no_reg_error("Stmt => READ id");
 			symbol_table[id] = reg;
 			usedReg[reg] = id;
-			sprintf(tmp_instr, "\tmove $t%d, $v0\n", reg);			
 		}
+		sprintf(tmp_instr, "\tmove $t%d, $v0\n", reg);
 		(*$$).push_back(tmp_instr);
+		releaseReg(reg, $$);
 	}
 	;
 Expr:
@@ -235,6 +266,7 @@ Expr:
 	}
 	|NOT Expr{
         printf("Expr => NOT Expr\n");
+
 	}
 	|Expr_{
 		printf("Expr => Expr_\n");
@@ -251,19 +283,18 @@ Expr:
 		  (*$$).push_back((*$1).at(i));
 		for(unsigned int i = 0; i < (*$3).size(); ++i)
 		  (*$$).push_back((*$3).at(i));
-		char tmp_instr[30];
-		int reg = getReg($$);
-		usedReg[reg] = "";
 		int r1 = atoi(expr1.c_str());
 		int r2 = atoi(expr2.c_str());
-		sprintf(tmp_instr, "\tadd $t%d, $t%d, $t%d\n", reg, r1, r2);
+		char tmp_instr[30];
+		sprintf(tmp_instr, "\tadd $t9, $t%d, $t%d\n", r1, r2);
 		(*$$).push_back(tmp_instr);
-		sprintf(tmp_instr, "%d", reg);
+		releaseReg(r1, $$);
+		releaseReg(r2, $$);
+		sprintf(tmp_instr, "\tmove $t%d, $t9\n", r1);
+		usedReg[r1] = "";
 		(*$$).push_back(tmp_instr);
-		if(symbol_table.find(usedReg[r1]) == symbol_table.end())
-		  releaseReg(r1);
-		if(symbol_table.find(usedReg[r2]) == symbol_table.end())
-		  releaseReg(r2);
+		sprintf(tmp_instr, "%d", r1);
+		(*$$).push_back(tmp_instr);
 		delete $1;
 		delete $3;
 	}
@@ -278,19 +309,18 @@ Expr:
 		  (*$$).push_back((*$1).at(i));
 		for(unsigned int i = 0; i < (*$3).size(); ++i)
 		  (*$$).push_back((*$3).at(i));
-		char tmp_instr[30];
-		int reg = getReg($$);
-		usedReg[reg] = "";
 		int r1 = atoi(expr1.c_str());
 		int r2 = atoi(expr2.c_str());
-		sprintf(tmp_instr, "\tsub $t%d, $t%d, $t%d\n", reg, r1, r2);
+		char tmp_instr[30];
+		sprintf(tmp_instr, "\tsub $t9, $t%d, $t%d\n", r1, r2);
 		(*$$).push_back(tmp_instr);
-		sprintf(tmp_instr, "%d", reg);
+		releaseReg(r1, $$);
+		releaseReg(r2, $$);
+		sprintf(tmp_instr, "\tmove $t%d, $t9\n", r1);
+		usedReg[r1] = "";
 		(*$$).push_back(tmp_instr);
-		if(symbol_table.find(usedReg[r1]) == symbol_table.end())
-		  releaseReg(r1);
-		if(symbol_table.find(usedReg[r2]) == symbol_table.end())
-		  releaseReg(r2);
+		sprintf(tmp_instr, "%d", r1);
+		(*$$).push_back(tmp_instr);
 		delete $1;
 		delete $3;
 	}
@@ -305,19 +335,18 @@ Expr:
 		  (*$$).push_back((*$1).at(i));
 		for(unsigned int i = 0; i < (*$3).size(); ++i)
 		  (*$$).push_back((*$3).at(i));
-		char tmp_instr[30];
-		int reg = getReg($$);
-		usedReg[reg] = "";
 		int r1 = atoi(expr1.c_str());
 		int r2 = atoi(expr2.c_str());
-		sprintf(tmp_instr, "\tmul $t%d, $t%d, $t%d\n", reg, r1, r2);
+		char tmp_instr[30];
+		sprintf(tmp_instr, "\tmul $t9, $t%d, $t%d\n", r1, r2);
 		(*$$).push_back(tmp_instr);
-		sprintf(tmp_instr, "%d", reg);
+		releaseReg(r1, $$);
+		releaseReg(r2, $$);
+		sprintf(tmp_instr, "\tmove $t%d, $t9\n", r1);
+		usedReg[r1] = "";
 		(*$$).push_back(tmp_instr);
-		if(symbol_table.find(usedReg[r1]) == symbol_table.end())
-		  releaseReg(r1);
-		if(symbol_table.find(usedReg[r2]) == symbol_table.end())
-		  releaseReg(r2);
+		sprintf(tmp_instr, "%d", r1);
+		(*$$).push_back(tmp_instr);
 		delete $1;
 		delete $3;
 	}
@@ -332,21 +361,18 @@ Expr:
 		  (*$$).push_back((*$1).at(i));
 		for(unsigned int i = 0; i < (*$3).size(); ++i)
 		  (*$$).push_back((*$3).at(i));
-		char tmp_instr[30];
-		int reg = getReg($$);
-		usedReg[reg] = "";
 		int r1 = atoi(expr1.c_str());
 		int r2 = atoi(expr2.c_str());
+		char tmp_instr[30];
 		sprintf(tmp_instr, "\tdiv $t%d, $t%d\n", r1, r2);
 		(*$$).push_back(tmp_instr);
-		sprintf(tmp_instr, "\tmflo $t%d\n", reg);
+		releaseReg(r1, $$);
+		releaseReg(r2, $$);
+		sprintf(tmp_instr, "\tmflo $t%d\n", r1);
+		usedReg[r1] = "";
 		(*$$).push_back(tmp_instr);
-		sprintf(tmp_instr, "%d", reg);
+		sprintf(tmp_instr, "%d", r1);
 		(*$$).push_back(tmp_instr);
-		if(symbol_table.find(usedReg[r1]) == symbol_table.end())
-		  releaseReg(r1);
-		if(symbol_table.find(usedReg[r2]) == symbol_table.end())
-		  releaseReg(r2);
 		delete $1;
 		delete $3;
 	}
@@ -370,9 +396,47 @@ Expr:
 	}
 	|Expr AND Expr_{
         printf("Expr => Expr AND Expr_\n");	
+		$$ = new vector<string>();
+		int r1 = atoi((*$1).at((*$1).size()-1).c_str());
+		int r2 = atoi((*$3).at((*$3).size()-1).c_str());
+		char tmp_instr[30];
+		
+		(*$$).push_back("\tli $t9, 0\n");	//default result is 0
+		sprintf(tmp_instr, "\tbeq $t%d, $0, Conti%d\n", r1, conti);
+		(*$$).push_back(tmp_instr);
+		sprintf(tmp_instr, "\tbeq $t%d, $0, Conti%d\n", r2, conti);
+		(*$$).push_back(tmp_instr);
+		(*$$).push_back("\tli $t9, 1\n");
+		sprintf(tmp_instr, "Conti%d\n", conti++);
+		(*$$).push_back(tmp_instr);
+		releaseReg(r1, $$);
+		releaseReg(r2, $$);
+		sprintf(tmp_instr, "\tmove $t%d, $t9\n", r1);
+		usedReg[r1] = "";	//declared reg r1 is used but not for an id
+		sprintf(tmp_instr, "%d", r1);
+		(*$$).push_back(tmp_instr);
+		delete $1;
+		delete $3;
 	}
 	|Expr OR Expr_{
-        printf("Expr => Expr OR Expr_\n");	
+        printf("Expr => Expr OR Expr_\n");
+		$$ = new vector<string>();
+		int r1 = atoi((*$1).at((*$1).size()-1).c_str());
+		int r2 = atoi((*$3).at((*$3).size()-1).c_str());
+		(*$1).pop_back();
+		(*$3).pop_back();
+		char tmp_instr[30];
+		sprintf(tmp_instr, "\tor $t9, $t%d, $t%d\n", r1, r2);
+		(*$$).push_back(tmp_instr);
+		releaseReg(r1, $$);
+		releaseReg(r2, $$);
+		sprintf(tmp_instr, "\tmove $t%d, $t9\n", r1);
+		(*$$).push_back(tmp_instr);
+		usedReg[r1] = "";
+		sprintf(tmp_instr, "%d", r1);
+		(*$$).push_back(tmp_instr);
+		delete $1;
+		delete $3;
 	}
 	|id '[' Expr ']' ASSIGN Expr{
         printf("Expr => id '[' Expr ']' ASSIGN Expr\n");	
@@ -394,18 +458,20 @@ Expr:
 			symbol_table[(*$1)] = reg;
 			usedReg[reg] = *$1;
 		}
-		int expr_loc = atoi(expr.c_str());
-		if(expr_loc > 10)	//value of expr is in the memory
-		{
-			sprintf(tmp_instr, "\tlw $t%d, %d($fp)\n", reg, (expr_loc-10)*4);
-		}
-		else //value of expr is in the registers
-		{
-			sprintf(tmp_instr, "\tmove $t%d, $t%d\n", reg, expr_loc);
-			releaseReg(expr_loc);
-		}
+		int expr_reg = atoi(expr.c_str());
+		sprintf(tmp_instr, "\tmove $t%d, $t%d\n", reg, expr_reg);
 		(*$$).push_back(tmp_instr);
-		sprintf(tmp_instr, "%d", reg);
+		releaseReg(expr_reg, $$);
+		if(reg == 9)
+		{
+			sprintf(tmp_instr, "\tmove $t%d, $t9\n", expr_reg);
+			(*$$).push_back(tmp_instr);
+			usedReg[expr_reg] = (*$1);
+			symbol_table[(*$1)] = expr_reg;
+			//release reg 9
+			usedReg.erase(usedReg.find(9));
+		}
+		sprintf(tmp_instr, "%d", symbol_table[(*$1)]);
 		(*$$).push_back(tmp_instr);
 		delete $3;
 	}
@@ -415,6 +481,8 @@ Expr_:
 		printf("Expr_ => num\n");
 		$$ = new vector<string>();
 		int reg = getReg($$);
+		if(reg == 9)
+		  no_reg_error("Expr_ => num");
 		usedReg[reg] = "";
 		char tmp_instr[30];
 		sprintf(tmp_instr, "\tli $t%d, %d\n", reg, atoi((*$1).c_str()));
@@ -427,19 +495,21 @@ Expr_:
 		$$ = $2;
 	}
 	|id	{
-		printf("Expr_ => id\n");
+		printf("Expr_ => id\tid is now %s\n", (*$1).c_str());
 		$$ = new vector<string>();
 		char tmp_instr[30];
 		if(symbol_table.find(*$1) == symbol_table.end())
 		{
 			int reg = getReg($$);
+			if(reg == 9)
+		  	  no_reg_error("Expr_ => num");
 			symbol_table[(*$1)] = reg;
 			usedReg[reg] = (*$1);
 		}
 		else
 		  getReg($$, *($1));
 		sprintf(tmp_instr, "%d", symbol_table[(*$1)]);
-		(*$$).push_back(tmp_instr);	
+		(*$$).push_back(tmp_instr);
 	}
 	|id '(' ExprList ')'{
 		printf("Expr_ => id '(' ExprList ')'\n");
@@ -469,6 +539,12 @@ ExprListTail:
 %%
 
 
+void no_reg_error(const char *s)
+{
+	printf("ERROR: no free reg available while converting %s\n", s);
+	exit(1);
+}
+
 int yyerror(const char *s)
 {
 	extern int yylineno;
@@ -496,7 +572,7 @@ int getReg(vector<string> *v, string id)
 			if(id.compare(last) == 0)
 			{
 				stack.pop_back();
-				sprintf(tmp_instr, "\tlw $t%d, %d($fp)\n", i, 4*(symbol_table[id]-10));
+				sprintf(tmp_instr, "\tlw $t%d, -%d($fp)\n", i, 4*(symbol_table[id]-10));
 				(*v).push_back(tmp_instr);
 				(*v).push_back("\tadd $sp, $sp, 4\n");
 				usedReg[i] = id;
@@ -504,11 +580,11 @@ int getReg(vector<string> *v, string id)
 			}
 			else
 			{
-				sprintf(tmp_instr, "\tlw $t9, %d($fp)\n", 4*(symbol_table[last]-10));
+				sprintf(tmp_instr, "\tlw $t9, -%d($fp)\n", 4*(symbol_table[last]-10));
 				(*v).push_back(tmp_instr);
-				sprintf(tmp_instr, "\tlw $t%d, %d($fp)\n", i, 4*(symbol_table[id]-10));
+				sprintf(tmp_instr, "\tlw $t%d, -%d($fp)\n", i, 4*(symbol_table[id]-10));
 				(*v).push_back(tmp_instr);
-				sprintf(tmp_instr, "\tsw $t9, %d($fp)\n", 4*(symbol_table[id]-10));
+				sprintf(tmp_instr, "\tsw $t9, -%d($fp)\n", 4*(symbol_table[id]-10));
 				(*v).push_back(tmp_instr);
 				(*v).push_back("\tadd $sp, $sp, 4\n");
 				usedReg[i] = id;
@@ -528,24 +604,7 @@ int getReg(vector<string> *v, string id)
 			return i;
 		}
 	}
-	(*v).push_back("\tmove $t9, $t0\n");
-	sprintf(tmp_instr, "\tlw $t0, %d($fp)\n", 4*(symbol_table[id]-10));
-	(*v).push_back(tmp_instr);
-	sprintf(tmp_instr, "\tsw $t9, %d($fp)\n", 4*(symbol_table[id]-10));
-	(*v).push_back(tmp_instr);
-	(*v).push_back("\tadd $sp, $sp, 4\n");
-	for(unsigned int i = 0; i < stack.size(); ++i)
-	{
-		if(stack.at(i).compare(id) == 0)
-		{
-			stack[i] = usedReg[0];
-			break;
-		}
-	}
-	symbol_table[usedReg[0]] = symbol_table[id];
-	symbol_table[id] = 0;
-	usedReg[0] = id;
-	return 0;
+	return 9;	//no reg is now available
 }
 
 int getReg(vector<string> *v)
@@ -553,16 +612,31 @@ int getReg(vector<string> *v)
 	for(int i = 0; i < 9; ++i)	//$t9 is reserved
 	{
 		if(usedReg.find(i) == usedReg.end())
-		  return i;
+		{
+			usedReg[i] = "";
+		  	return i;
+		}
 	}
-	(*v).push_back("\tadd $sp, $sp, -4\n\tsw $t0, 0($sp)\n");
-	symbol_table[usedReg[0]] = framePtr++;
-	stack.push_back(usedReg[0]);
-	usedReg.erase(usedReg.find(0));
-	return 0;
+	return 9;	//no reg is now available
 }
- void releaseReg(int num)
+
+ void releaseReg(int num, vector<string> *v)
  {
- 	if(usedReg.find(num) != usedReg.end())
+ 	if(usedReg.find(num) == usedReg.end())
+	  return;
+	if(symbol_table.find(usedReg[num]) == symbol_table.end())
 	  usedReg.erase(usedReg.find(num));
+	else
+	{
+		//save the data in the current register into stack
+		char tmp_instr[30];
+		(*v).push_back("\tadd $sp, $sp, -4\n");
+		sprintf(tmp_instr, "\tsw $t%d, 0($sp)\n", num);
+		(*v).push_back(tmp_instr);
+		stack.push_back(usedReg[num]);
+		//update the symbol table
+		symbol_table[usedReg[num]] = framePtr++; 
+	  	//mark the current reg as available
+		usedReg.erase(usedReg.find(num));
+	}
  }

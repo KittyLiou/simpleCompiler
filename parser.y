@@ -5,6 +5,7 @@
 	#include <map>
 	map<string, int>symbol_table;
 	map<int, string> usedReg;
+	vector<string> declars;
 	int yyerror(const char *s);
 	int yylex(void);
 	void no_reg_error(const char *s);
@@ -13,6 +14,7 @@
 	void releaseReg(int reg);
 	int framePtr = 1;
 	int label = 0;
+	int while_label = 0;
 	int conti = 0;
 %}
 
@@ -43,6 +45,8 @@ Program:
 	DeclList	{
 		printf("Program => DeclList\n");
 		FILE *fp = fopen("result.asm", "w");
+		for(unsigned int i = 0; i < declars.size(); ++i)
+		  fprintf(fp,"%s",declars.at(i).c_str());
 		fprintf(fp, "	.globl main\n	.text\nmain:\n");
 		fprintf(fp, "\tadd $sp, $sp, -4\n\tsw $fp, 0($sp)\n");	//store the fp
 		fprintf(fp, "\tmove $fp, $sp\n");	//move fp to sp
@@ -64,6 +68,18 @@ DeclList:
 	}
 	|Type id '[' num ']' ';'DeclList{
 		printf("DeclList => Type id [ num ] ; DeclList\n");
+		$$ = new vector<string>();
+		char tmp_instr[30];
+		//if the array is not yet defined, define it
+		if(symbol_table.find(*$2) == symbol_table.end())
+		{
+			sprintf(tmp_instr, "%s:\t.space %d\n", (*$2).c_str(), 4*atoi((*$4).c_str()));
+			declars.push_back(tmp_instr);
+			symbol_table[(*$2)] = 0;
+		}
+		for(unsigned int i = 0; i < (*$7).size(); ++i)
+			(*$$).push_back((*$7).at(i));
+		delete $7;
 	}
 	|Type id FunDecl DeclList{
 		printf("DeclList => Type id FunDecl DeclList\n");
@@ -106,8 +122,16 @@ VarDeclList:
 	|Type id '[' num ']' ';' VarDeclList {
 		printf("VarDeclList => Type id '[' num ']' ';' VarDeclList\n");
 		$$ = new vector<string>();
-		delete $4;
-		//not yet finished
+		char tmp_instr[30];
+		if(symbol_table.find(*$2) == symbol_table.end())
+		{
+			sprintf(tmp_instr, "%s:\t.space %d\n", (*$2).c_str(), 4*atoi((*$4).c_str()));
+			declars.push_back(tmp_instr);
+			symbol_table[(*$2)] = 0;
+		}
+		for(unsigned int i = 0; i < (*$7).size(); ++i)
+			(*$$).push_back((*$7).at(i));
+		delete $7;
 	}
 	|{ }{
 		printf("VarDeclList: => { }\n");
@@ -184,6 +208,10 @@ Stmt:
 	}
 	|BREAK ';'{
 		printf("Stmt => BREAK;\n");
+		$$ = new vector<string>();
+		char tmp_instr[30];
+		sprintf(tmp_instr, "\tj While_break%d\n", while_label);
+		(*$$).push_back(tmp_instr);
 	}
 	|IF '(' Expr ')' Stmt ELSE Stmt	{
 		printf("Stmt => IF ( Expr ) Stmt ELSE Stmt\n");
@@ -213,6 +241,26 @@ Stmt:
 	}
 	|WHILE '(' Expr ')' Stmt	{
 		printf("Stmt => WHILE ( Expr ) Stmt\n");
+		$$ = new vector<string>();
+		string expr = (*$3).at((*$3).size()-1);
+		(*$3).pop_back();
+		int result_reg = atoi(expr.c_str());
+		char tmp_instr[30];
+		sprintf(tmp_instr, "While%d:\n", while_label);
+		(*$$).push_back(tmp_instr);
+		for(unsigned int i = 0; i < (*$3).size(); ++i)
+		  (*$$).push_back((*$3).at(i));
+		sprintf(tmp_instr, "\tbeq $t%d, $0, While_break%d\n", result_reg, while_label);
+		(*$$).push_back(tmp_instr);
+		for(unsigned int i = 0; i < (*$5).size(); ++i)
+		  (*$$).push_back((*$5).at(i));
+		sprintf(tmp_instr, "\tj While%d\n", while_label);
+		(*$$).push_back(tmp_instr);
+		sprintf(tmp_instr, "While_break%d:\n", while_label++);
+		(*$$).push_back(tmp_instr);
+		releaseReg(result_reg);
+		delete $3;
+		delete $5;
 	}
 	|'{' VarDeclList StmtList '}'{
 		printf("{Stmt => VarDeclList StmtList}\n");
@@ -614,6 +662,35 @@ Expr:
 	}
 	|id '[' Expr ']' ASSIGN Expr{
         printf("Expr => id '[' Expr ']' ASSIGN Expr\n");	
+		string expr = (*$3).at((*$3).size()-1);
+		(*$3).pop_back();
+		string expr_to_assign = (*$6).at((*$6).size()-1);
+		(*$6).pop_back();
+		$$ = new vector<string>();
+		for(unsigned int i = 0; i < (*$3).size(); ++i)
+		  (*$$).push_back((*$3).at(i));
+		for(unsigned int i = 0; i < (*$6).size(); ++i)
+		  (*$$).push_back((*$6).at(i));
+		char tmp_instr[30];
+		int expr_reg = atoi(expr.c_str());
+		int reg_to_assign = atoi(expr_to_assign.c_str());
+		int addr = getReg($$, "");
+		sprintf(tmp_instr, "\tla $t%d, %s\n", addr, (*$1).c_str());
+		(*$$).push_back(tmp_instr);
+		//four times of the index
+		sprintf(tmp_instr, "\tadd $t%d, $t%d, $t%d\n", expr_reg, expr_reg, expr_reg);
+		(*$$).push_back(tmp_instr);
+		(*$$).push_back(tmp_instr);
+		sprintf(tmp_instr, "\tadd $t%d, $t%d, $t%d\n", addr, expr_reg, addr);
+		(*$$).push_back(tmp_instr);
+		sprintf(tmp_instr, "\tsw $t%d, 0($t%d)\n", reg_to_assign, addr);
+		(*$$).push_back(tmp_instr);
+		sprintf(tmp_instr, "%d", reg_to_assign);
+		(*$$).push_back(tmp_instr);
+		releaseReg(addr);
+		releaseReg(expr_reg);
+		delete $3;
+		delete $6;
 	}
 	|id ASSIGN Expr{
 		printf("Expr => id ASSIGN Expr\n");
@@ -624,12 +701,8 @@ Expr:
 		  (*$$).push_back((*$3).at(i));
 		char tmp_instr[30];
 		int expr_reg = atoi(expr.c_str());
-		int reg;
 		if(symbol_table.find(*$1) == symbol_table.end())
 			add_symbol($$, *$1);
-		reg = getReg($$, *$1);
-		if(reg == 9)
-			no_reg_error("Expr => id ASSIGN Expr");
 		sprintf(tmp_instr, "\tsw $t%d, -%d($fp)\n", expr_reg, 4*symbol_table[(*$1)]);
 		(*$$).push_back(tmp_instr);
 		sprintf(tmp_instr, "%d", expr_reg);
@@ -663,8 +736,6 @@ Expr_:
 		if(reg == 9)
 			no_reg_error("Expr_ => id");
 		char tmp_instr[30];
-		sprintf(tmp_instr, "\tlw $t%d, -%d($fp)\n", reg, 4*symbol_table[(*$1)]);
-		(*$$).push_back(tmp_instr);
 		sprintf(tmp_instr, "%d", reg);
 		(*$$).push_back(tmp_instr);
 	}
@@ -674,6 +745,28 @@ Expr_:
 	}
 	|id '[' Expr ']'{
 		printf("Expr_ => id '[' Expr ']'\n");
+		string expr = (*$3).at((*$3).size()-1);
+		(*$3).pop_back();
+		int expr_reg = atoi(expr.c_str());
+		$$ = new vector<string>();
+		for(unsigned int i = 0; i < (*$3).size(); ++i)
+		  (*$$).push_back((*$3).at(i));
+		char tmp_instr[30];
+		int addr = getReg($$, "");
+		sprintf(tmp_instr, "\tla $t%d, %s\n", addr, (*$1).c_str());
+		(*$$).push_back(tmp_instr);
+		//four times of the index
+		sprintf(tmp_instr, "\tadd $t%d, $t%d, $t%d\n", expr_reg, expr_reg, expr_reg);
+		(*$$).push_back(tmp_instr);
+		(*$$).push_back(tmp_instr);
+		sprintf(tmp_instr, "\tadd $t%d, $t%d, $t%d\n", addr, expr_reg, addr);
+		(*$$).push_back(tmp_instr);
+		sprintf(tmp_instr, "\tlw $t%d, 0($t%d)\n", expr_reg, addr);
+		(*$$).push_back(tmp_instr);
+		sprintf(tmp_instr, "%d", expr_reg);
+		(*$$).push_back(tmp_instr);
+		releaseReg(addr);
+		delete $3;
 	}
 	;
 
